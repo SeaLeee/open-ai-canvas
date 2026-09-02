@@ -24,6 +24,9 @@ function throwIfAborted(signal?: AbortSignal) {
     if (signal?.aborted) throw new DOMException("The operation was aborted", "AbortError");
 }
 
+/** 批量出图自动保留阈值：一次生成多张时，低于该审美分的图片自动归档，只保留高分图进正常库（对应 A 级 ≥75） */
+export const BATCH_AUTO_KEEP_MIN_SCORE = 75;
+
 type EnsureCanvasNodeAssetOptions = {
     canvasId: string;
     domainProjectId?: string;
@@ -239,14 +242,20 @@ async function generationOutputAsset(input: Parameters<MaterializeGenerationTask
         const stored = await storedGenerationImage(image, input.effectKey, scope, input.signal);
         // 审美评分：失败不阻塞素材落库（返回 null 时跳过）
         const aesthetic = await computeImageAestheticScore(stored.url, input.signal);
+        // 批量出图自动筛选：一次生成多张时，低于阈值的图片自动归档进回收站，
+        // 只保留高分图进入正常素材库，把"挑图"成本降到最低。单张生成（batchCount≤1）不筛选。
+        const batchCount = typeof input.task.clientContext?.batchCount === "number" && input.task.clientContext.batchCount > 1 ? input.task.clientContext.batchCount : 1;
+        const aestheticRejected = batchCount > 1 && aesthetic !== null && aesthetic.score < BATCH_AUTO_KEEP_MIN_SCORE;
         return {
             kind: "image",
             title: "生成图片",
             coverUrl: stored.url,
             tags: ["生成"],
-            status: "confirmed",
+            status: aestheticRejected ? "archived" : "confirmed",
             source: "生成任务",
-            metadata: aesthetic ? { ...metadata, ...toAestheticMetadata(aesthetic) } : metadata,
+            metadata: aesthetic
+                ? { ...metadata, ...toAestheticMetadata(aesthetic), ...(aestheticRejected ? { aestheticRejected: true, aestheticMinScore: BATCH_AUTO_KEEP_MIN_SCORE } : {}) }
+                : metadata,
             data: {
                 dataUrl: stored.url,
                 storageKey: stored.storageKey,

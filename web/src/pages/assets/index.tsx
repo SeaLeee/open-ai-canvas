@@ -1,11 +1,12 @@
-import { AlertTriangle, AudioLines, Box, CheckCheck, Clapperboard, Copy, Download, FileText, FileUp, FolderOpen, Image as ImageIcon, Link2, MoreHorizontal, PencilLine, Play, Plus, RotateCcw, Search, Trash2, Upload, type LucideIcon } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { AlertTriangle, AudioLines, Box, CheckCheck, Clapperboard, Copy, Download, FileText, FileUp, FolderOpen, Image as ImageIcon, Link2, MoreHorizontal, PencilLine, Play, Plus, RotateCcw, Search, Tag as TagIcon, Trash2, Upload, Users, type LucideIcon } from "lucide-react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useQueryClient } from "@tanstack/react-query";
+import { useWindowVirtualizer } from "@tanstack/react-virtual";
 import { App, Button, Drawer, Dropdown, Form, Input, Modal, Popconfirm, Progress, Select, Space, Tag, Typography } from "antd";
 import type { MenuProps } from "antd";
 import { useNavigate } from "react-router";
 
-import { CollectionGrid, ListToolbar, PageHeader, PaginationBar, WorkspacePage } from "@/components/layout/workspace-page";
+import { ListToolbar, PageHeader, WorkspacePage } from "@/components/layout/workspace-page";
 import { WorkspaceState } from "@/components/layout/workspace-state";
 import { AssetMediaPreview } from "@/components/asset-media-preview";
 import { AssetLibraryCard, AssetLibraryCardMedia } from "@/components/assets/asset-library-card";
@@ -66,6 +67,21 @@ const aestheticThresholdOptions = [
     { label: "≥ 85 分", value: 85 },
 ];
 
+/** 虚拟滚动网格布局参数：与 .assets-library-grid 的响应式列数/间距对齐（见 globals.css） */
+const GRID_COL_GAP = 16; // --space-4（列间距）
+const GRID_ROW_GAP = 20; // --space-5（行间距）
+const GRID_COVER_ASPECT = 3 / 4; // .assets-library-page 卡片封面 4:3
+const GRID_CARD_TEXT_HEIGHT = 84; // 标题 + 摘要 + 来源行 + padding 的保守估计
+
+/** 复刻 .assets-library-grid 的视口断点列数（6/5/4/3/1） */
+function gridColumnCountForViewport(width: number) {
+    if (width >= 1601) return 6;
+    if (width >= 1101) return 5;
+    if (width >= 900) return 4;
+    if (width >= 640) return 3;
+    return 1;
+}
+
 /** 读取素材元数据中的审美分数（由审美系统在生图落库时写入，历史素材可能没有） */
 function assetAestheticScore(asset: LibraryAsset): number | null {
     const score = asset.metadata?.aestheticScore;
@@ -119,8 +135,6 @@ export default function AssetsPage() {
     const [categoryFilter, setCategoryFilter] = useState<AssetCategory | "all">("all");
     const [sortBy, setSortBy] = useState<AssetSortMode>("default");
     const [minAestheticScore, setMinAestheticScore] = useState(0);
-    const [page, setPage] = useState(1);
-    const [pageSize, setPageSize] = useState(35);
     const [editingAsset, setEditingAsset] = useState<LibraryAsset | null>(null);
     const [isAssetOpen, setIsAssetOpen] = useState(false);
     const [previewAsset, setPreviewAsset] = useState<LibraryAsset | null>(null);
@@ -129,6 +143,13 @@ export default function AssetsPage() {
     const [selectedIds, setSelectedIds] = useState<string[]>([]);
     const [batchDeleteOpen, setBatchDeleteOpen] = useState(false);
     const [batchArchiveOpen, setBatchArchiveOpen] = useState(false);
+    // 角色维度视图：只浏览 category=character 的角色卡
+    const [roleView, setRoleView] = useState(false);
+    // 批量整理：批量改分类 / 批量打标签
+    const [batchCategoryOpen, setBatchCategoryOpen] = useState(false);
+    const [batchCategory, setBatchCategory] = useState<AssetCategory>("material");
+    const [batchTagOpen, setBatchTagOpen] = useState(false);
+    const [batchTags, setBatchTags] = useState<string[]>([]);
 
     const [formKind, setFormKind] = useState<AssetKind>("text");
     const [imageDraft, setImageDraft] = useState<ImageDraft>(null);
@@ -143,7 +164,8 @@ export default function AssetsPage() {
     const allLibraryAssets = useMemo(() => assets.filter((asset): asset is LibraryAsset => asset.kind !== "entity"), [assets]);
     const activeAssets = useMemo(() => allLibraryAssets.filter((asset) => asset.status !== "archived"), [allLibraryAssets]);
     const trashAssets = useMemo(() => allLibraryAssets.filter((asset) => asset.status === "archived"), [allLibraryAssets]);
-    const validAssets = viewMode === "trash" ? trashAssets : activeAssets;
+    const roleAssets = useMemo(() => activeAssets.filter((asset) => asset.category === "character"), [activeAssets]);
+    const validAssets = viewMode === "trash" ? trashAssets : roleView ? roleAssets : activeAssets;
     const selectedAssets = useMemo(() => validAssets.filter((asset) => selectedIds.includes(asset.id)), [selectedIds, validAssets]);
     const kindCounts = useMemo(() => new Map(kindOptions.map((option) => [option.value, option.value === "all" ? activeAssets.length : activeAssets.filter((asset) => asset.kind === option.value).length])), [activeAssets]);
     const categoryCounts = useMemo(() => new Map(categoryOptions.map((option) => [option.value, option.value === "all" ? activeAssets.length : activeAssets.filter((asset) => (asset.category || "other") === option.value).length])), [activeAssets]);
@@ -162,11 +184,8 @@ export default function AssetsPage() {
     const filteredAssetIds = useMemo(() => filteredAssets.map((asset) => asset.id), [filteredAssets]);
     const allFilteredSelected = filteredAssetIds.length > 0 && filteredAssetIds.every((id) => selectedIds.includes(id));
 
-    const visibleAssets = useMemo(() => {
-        if (sortBy === "default") {
-            const start = (page - 1) * pageSize;
-            return filteredAssets.slice(start, start + pageSize);
-        }
+    const sortedAssets = useMemo(() => {
+        if (sortBy === "default") return filteredAssets;
         const sorted = [...filteredAssets];
         if (sortBy === "oldest") {
             sorted.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
@@ -178,14 +197,8 @@ export default function AssetsPage() {
                 return b.createdAt.localeCompare(a.createdAt);
             });
         }
-        const start = (page - 1) * pageSize;
-        return sorted.slice(start, start + pageSize);
-    }, [filteredAssets, page, pageSize, sortBy]);
-
-    useEffect(() => {
-        const maxPage = Math.max(1, Math.ceil(filteredAssets.length / pageSize));
-        setPage((value) => Math.min(value, maxPage));
-    }, [filteredAssets.length, pageSize]);
+        return sorted;
+    }, [filteredAssets, sortBy]);
 
     useEffect(() => {
         const existingIds = new Set(validAssets.map((asset) => asset.id));
@@ -403,6 +416,42 @@ export default function AssetsPage() {
         }
     };
 
+    const applyBatchCategory = async () => {
+        if (!selectedIds.length) return;
+        for (const id of selectedIds) {
+            updateAsset(id, { category: batchCategory });
+        }
+        const count = selectedIds.length;
+        setSelectedIds([]);
+        setBatchCategoryOpen(false);
+        await flushAssetStorePersistence();
+        try {
+            await saveRemoteUserDataNow();
+            message.success(`已将 ${count} 个素材分类改为「${assetCategoryLabel(batchCategory)}」`);
+        } catch {
+            message.warning("已本地更新，稍后自动同步至云端");
+        }
+    };
+
+    const applyBatchTags = async () => {
+        if (!selectedIds.length || !batchTags.length) return;
+        const targets = selectedIds.map((id) => validAssets.find((asset) => asset.id === id)).filter((asset): asset is LibraryAsset => Boolean(asset));
+        for (const asset of targets) {
+            updateAsset(asset.id, { tags: Array.from(new Set([...(asset.tags || []), ...batchTags])) });
+        }
+        const count = targets.length;
+        setSelectedIds([]);
+        setBatchTagOpen(false);
+        setBatchTags([]);
+        await flushAssetStorePersistence();
+        try {
+            await saveRemoteUserDataNow();
+            message.success(`已为 ${count} 个素材添加标签`);
+        } catch {
+            message.warning("已本地更新，稍后自动同步至云端");
+        }
+    };
+
     const emptyTrash = async () => {
         const count = trashAssets.length;
         if (!count) return;
@@ -445,14 +494,47 @@ export default function AssetsPage() {
         }
     };
 
+    const renderAssetCard = (asset: LibraryAsset) => (
+        <AssetCard
+            asset={asset}
+            selected={selectedIds.includes(asset.id)}
+            isTrash={viewMode === "trash"}
+            retentionDays={retentionDays}
+            onSelect={(selected) => setSelectedIds((current) => (selected ? [...new Set([...current, asset.id])] : current.filter((id) => id !== asset.id)))}
+            onOpen={() => setPreviewAsset(asset)}
+            onEdit={() => openEdit(asset)}
+            onCopy={copyAssetText}
+            onDownload={downloadImage}
+            onRestore={() => void restoreAsset(asset)}
+            onArchive={() => setArchivingAsset(asset)}
+            onDelete={() => setDeletingAsset(asset)}
+        />
+    );
+
+    const virtualItemCount = sortedAssets.length + (canCreateAsset ? 1 : 0);
+    const renderVirtualItem = (index: number) => {
+        if (canCreateAsset && index === 0) {
+            return (
+                <button type="button" className="library-create-card h-full" onClick={openCreate}>
+                    <span className="library-create-cover">
+                        <Plus className="size-8" />
+                    </span>
+                    <span className="library-create-title">新增素材</span>
+                    <span className="library-create-meta">文本、图片、音视频或模型</span>
+                </button>
+            );
+        }
+        return renderAssetCard(sortedAssets[canCreateAsset ? index - 1 : index]);
+    };
+
     return (
         <>
             <WorkspacePage grid className="library-page assets-library-page canvas-library-page">
                 <div className="studio-band">
                     <PageHeader
-                        title={viewMode === "trash" ? "素材库 / 回收站" : "素材库"}
-                        description={viewMode === "trash" ? "已删除画布或手动归档的临时素材，可随时还原或彻底清理。" : "管理文本、图片、视频、音频和 3D 模型素材。"}
-                        meta={<span className="app-projects-header-meta assets-header-meta">{validAssets.length} 个素材</span>}
+                        title={viewMode === "trash" ? "素材库 / 回收站" : roleView ? "角色库" : "素材库"}
+                        description={viewMode === "trash" ? "已删除画布或手动归档的临时素材，可随时还原或彻底清理。" : roleView ? "沉淀的角色卡，用于保持分镜与成片中的角色一致性。" : "管理文本、图片、视频、音频和 3D 模型素材。"}
+                        meta={<span className="app-projects-header-meta assets-header-meta">{validAssets.length} 个{roleView ? "角色" : "素材"}</span>}
                         actions={
                             <div className="assets-header-actions">
                                 <div className="assets-header-action-buttons">
@@ -476,7 +558,6 @@ export default function AssetsPage() {
                                                 icon={<RotateCcw className="size-3.5" />}
                                                 onClick={() => {
                                                     setViewMode("library");
-                                                    setPage(1);
                                                     setSelectedIds([]);
                                                 }}
                                             >
@@ -485,6 +566,17 @@ export default function AssetsPage() {
                                         </>
                                     ) : (
                                         <>
+                                            <Button
+                                                type={roleView ? "primary" : "text"}
+                                                icon={<Users className="size-3.5" />}
+                                                onClick={() => {
+                                                    setViewMode("library");
+                                                    setRoleView((value) => !value);
+                                                    setSelectedIds([]);
+                                                }}
+                                            >
+                                                {roleView ? "返回素材库" : "角色库"}
+                                            </Button>
                                             <Button className="library-primary-action" type="primary" icon={<Plus className="size-3.5" />} onClick={openCreate}>
                                                 新增素材
                                             </Button>
@@ -519,7 +611,6 @@ export default function AssetsPage() {
                             setCategoryFilter("all");
                             setSortBy("default");
                             setMinAestheticScore(0);
-                            setPage(1);
                         }}
                     >
                         <Input
@@ -529,7 +620,6 @@ export default function AssetsPage() {
                             value={keyword}
                             placeholder="搜索标题、内容、标签或来源"
                             onChange={(event) => {
-                                setPage(1);
                                 setKeyword(event.target.value);
                             }}
                         />
@@ -539,7 +629,6 @@ export default function AssetsPage() {
                             value={sortBy}
                             options={sortOptions}
                             onChange={(value) => {
-                                setPage(1);
                                 setSortBy(value);
                             }}
                         />
@@ -549,7 +638,6 @@ export default function AssetsPage() {
                             value={minAestheticScore}
                             options={aestheticThresholdOptions}
                             onChange={(value) => {
-                                setPage(1);
                                 setMinAestheticScore(value);
                             }}
                         />
@@ -567,7 +655,6 @@ export default function AssetsPage() {
                                 onChange={(value) => {
                                     setViewMode("library");
                                     setKindFilter(value as AssetKind | "all");
-                                    setPage(1);
                                 }}
                             />
                             <AssetFilterGroup
@@ -578,7 +665,6 @@ export default function AssetsPage() {
                                 onChange={(value) => {
                                     setViewMode("library");
                                     setCategoryFilter(value as AssetCategory | "all");
-                                    setPage(1);
                                 }}
                                 className="lg:mt-5"
                             />
@@ -599,7 +685,6 @@ export default function AssetsPage() {
                                             setKindFilter("all");
                                             setCategoryFilter("all");
                                         }
-                                        setPage(1);
                                         setSelectedIds([]);
                                     }}
                                 >
@@ -630,6 +715,8 @@ export default function AssetsPage() {
                                     onExport={() => void exportSelectedAssets()}
                                     onRestore={() => void batchRestore()}
                                     onArchive={() => setBatchArchiveOpen(true)}
+                                    onCategory={() => setBatchCategoryOpen(true)}
+                                    onTag={() => setBatchTagOpen(true)}
                                     onDelete={() => setBatchDeleteOpen(true)}
                                 />
                             ) : null}
@@ -644,45 +731,8 @@ export default function AssetsPage() {
                                     {filteredAssets.length === 0 ? (
                                         <WorkspaceState icon="assets" compact title="没有匹配的素材" description="调整关键词或左侧分类后再试。" />
                                     ) : (
-                                        <CollectionGrid className="library-grid assets-library-grid">
-                                            {canCreateAsset ? (
-                                                <button type="button" className="library-create-card" onClick={openCreate}>
-                                                    <span className="library-create-cover">
-                                                        <Plus className="size-8" />
-                                                    </span>
-                                                    <span className="library-create-title">新增素材</span>
-                                                    <span className="library-create-meta">文本、图片、音视频或模型</span>
-                                                </button>
-                                            ) : null}
-                                            {visibleAssets.map((asset) => (
-                                                <AssetCard
-                                                    key={asset.id}
-                                                    asset={asset}
-                                                    selected={selectedIds.includes(asset.id)}
-                                                    isTrash={viewMode === "trash"}
-                                                    retentionDays={retentionDays}
-                                                    onSelect={(selected) => setSelectedIds((current) => (selected ? [...new Set([...current, asset.id])] : current.filter((id) => id !== asset.id)))}
-                                                    onOpen={() => setPreviewAsset(asset)}
-                                                    onEdit={() => openEdit(asset)}
-                                                    onCopy={copyAssetText}
-                                                    onDownload={downloadImage}
-                                                    onRestore={() => void restoreAsset(asset)}
-                                                    onArchive={() => setArchivingAsset(asset)}
-                                                    onDelete={() => setDeletingAsset(asset)}
-                                                />
-                                            ))}
-                                        </CollectionGrid>
+                                        <AssetVirtualGrid count={virtualItemCount} renderItem={renderVirtualItem} />
                                     )}
-                                    <PaginationBar
-                                        current={page}
-                                        pageSize={pageSize}
-                                        total={filteredAssets.length}
-                                        pageSizeOptions={[35, 70, 105]}
-                                        onChange={(nextPage, nextPageSize) => {
-                                            setPage(nextPageSize !== pageSize ? 1 : nextPage);
-                                            setPageSize(nextPageSize);
-                                        }}
-                                    />
                                 </>
                             )}
                         </section>
@@ -874,6 +924,46 @@ export default function AssetsPage() {
                 cancelText="取消"
             >
                 确定将已选择的 {selectedAssets.length} 个素材移入回收站吗？移入后可随时在回收站批量还原。
+            </Modal>
+            <Modal
+                className="library-modal library-confirm-modal"
+                title="批量改分类"
+                open={batchCategoryOpen}
+                onCancel={() => setBatchCategoryOpen(false)}
+                onOk={() => void applyBatchCategory()}
+                okText="确认改分类"
+                cancelText="取消"
+            >
+                <p className="mb-3 text-sm text-foreground/60">将已选择的 {selectedAssets.length} 个素材统一改到以下分类：</p>
+                <Select
+                    className="w-full"
+                    value={batchCategory}
+                    options={ASSET_CATEGORY_OPTIONS}
+                    onChange={(value) => setBatchCategory(value)}
+                />
+            </Modal>
+            <Modal
+                className="library-modal library-confirm-modal"
+                title="批量加标签"
+                open={batchTagOpen}
+                onCancel={() => {
+                    setBatchTagOpen(false);
+                    setBatchTags([]);
+                }}
+                onOk={() => void applyBatchTags()}
+                okText="确认加标签"
+                okButtonProps={{ disabled: !batchTags.length }}
+                cancelText="取消"
+            >
+                <p className="mb-3 text-sm text-foreground/60">为已选择的 {selectedAssets.length} 个素材追加标签（保留原有标签）：</p>
+                <Select
+                    mode="tags"
+                    className="w-full"
+                    value={batchTags}
+                    tokenSeparators={[",", "，"]}
+                    placeholder="输入标签后回车"
+                    onChange={(value) => setBatchTags(value)}
+                />
             </Modal>
             <Modal
                 className="library-modal library-confirm-modal"
@@ -1078,6 +1168,62 @@ function ModelCover({ asset }: { asset: LibraryAsset & { kind: "model" } }) {
     );
 }
 
+function AssetVirtualGrid({ count, renderItem }: { count: number; renderItem: (index: number) => ReactNode }) {
+    const containerRef = useRef<HTMLDivElement>(null);
+    const [metrics, setMetrics] = useState<{ width: number; scrollMargin: number; viewportWidth: number }>({ width: 0, scrollMargin: 0, viewportWidth: 0 });
+
+    useEffect(() => {
+        const element = containerRef.current;
+        if (!element) return;
+        const measure = () => {
+            const rect = element.getBoundingClientRect();
+            setMetrics((current) => ({ ...current, width: rect.width, scrollMargin: rect.top + window.scrollY, viewportWidth: window.innerWidth }));
+        };
+        measure();
+        const observer = new ResizeObserver(measure);
+        observer.observe(element);
+        window.addEventListener("resize", measure);
+        return () => {
+            observer.disconnect();
+            window.removeEventListener("resize", measure);
+        };
+    }, []);
+
+    const columns = useMemo(() => gridColumnCountForViewport(metrics.viewportWidth || window.innerWidth), [metrics.viewportWidth]);
+    const columnWidth = metrics.width > 0 ? (metrics.width - GRID_COL_GAP * (columns - 1)) / columns : 0;
+    const rowHeight = columnWidth * GRID_COVER_ASPECT + GRID_CARD_TEXT_HEIGHT;
+
+    const virtualizer = useWindowVirtualizer({
+        count,
+        lanes: columns,
+        gap: GRID_ROW_GAP,
+        estimateSize: () => rowHeight,
+        scrollMargin: metrics.scrollMargin,
+        overscan: columns * 3,
+        getItemKey: (index) => index,
+    });
+
+    const totalHeight = virtualizer.getTotalSize();
+
+    return (
+        <div ref={containerRef} className="relative mt-4 w-full" style={{ height: totalHeight }}>
+            {virtualizer.getVirtualItems().map((item) => (
+                <div
+                    key={item.key}
+                    className="absolute left-0 top-0"
+                    style={{
+                        width: columnWidth,
+                        height: item.size,
+                        transform: `translateX(${item.lane * (columnWidth + GRID_COL_GAP)}px) translateY(${item.start - metrics.scrollMargin}px)`,
+                    }}
+                >
+                    {renderItem(item.index)}
+                </div>
+            ))}
+        </div>
+    );
+}
+
 function AssetsBatchBar({
     count,
     isTrash = false,
@@ -1087,6 +1233,8 @@ function AssetsBatchBar({
     onExport,
     onRestore,
     onArchive,
+    onCategory,
+    onTag,
     onDelete,
 }: {
     count: number;
@@ -1097,6 +1245,8 @@ function AssetsBatchBar({
     onExport: () => void;
     onRestore?: () => void;
     onArchive?: () => void;
+    onCategory?: () => void;
+    onTag?: () => void;
     onDelete: () => void;
 }) {
     return (
@@ -1124,6 +1274,12 @@ function AssetsBatchBar({
                     <>
                         <Button size="small" icon={<Download className="size-3.5" />} onClick={onExport}>
                             导出
+                        </Button>
+                        <Button size="small" icon={<TagIcon className="size-3.5" />} onClick={onCategory}>
+                            改分类
+                        </Button>
+                        <Button size="small" icon={<TagIcon className="size-3.5" />} onClick={onTag}>
+                            加标签
                         </Button>
                         <Button size="small" icon={<Trash2 className="size-3.5 text-amber-500" />} onClick={onArchive}>
                             移入回收站
