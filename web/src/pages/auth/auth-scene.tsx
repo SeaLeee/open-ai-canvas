@@ -55,14 +55,14 @@ export function AuthScene() {
     return (
         <main className="h-dvh min-h-0 overflow-y-auto bg-[#08090c] text-white lg:overflow-hidden">
             <div className="grid min-h-full lg:h-full lg:grid-cols-[minmax(0,1.32fr)_minmax(520px,1fr)]">
-                <section className="relative min-h-[250px] overflow-hidden sm:min-h-[320px] lg:min-h-0" aria-label="影策品牌影片">
+                <section className="relative min-h-[250px] overflow-hidden sm:min-h-[320px] lg:min-h-0" aria-label="ShotFlow品牌影片">
                     <video className="absolute inset-0 size-full object-cover" src={AUTH_VIDEO_URL} poster={AUTH_VIDEO_POSTER} autoPlay muted loop playsInline preload="metadata" />
                     <div aria-hidden className="absolute inset-0 bg-[linear-gradient(180deg,rgba(4,5,8,.58),transparent_42%,rgba(4,5,8,.74))]" />
                     <div aria-hidden className="absolute inset-y-0 right-0 hidden w-[clamp(120px,14vw,240px)] bg-[linear-gradient(90deg,transparent_0%,rgba(11,12,16,.68)_58%,#0b0c10_100%)] lg:block" />
                     <div className="absolute inset-x-0 top-0 flex items-center justify-between gap-4 p-5 sm:p-7 lg:p-9">
                         <Link to="/" className="inline-flex items-center gap-2.5 text-sm font-semibold text-white drop-shadow-sm transition-opacity hover:opacity-80">
                             <span className="size-7 bg-current" style={{ mask: "url(/logo.svg) center / contain no-repeat", WebkitMask: "url(/logo.svg) center / contain no-repeat" }} />
-                            影策
+                            ShotFlow
                         </Link>
                         <span className="inline-flex items-center gap-2 rounded-full border border-white/16 bg-black/20 px-3 py-1.5 text-[var(--fs-label)] text-white/76 backdrop-blur-xl">
                             <Play className="size-3 fill-current" />

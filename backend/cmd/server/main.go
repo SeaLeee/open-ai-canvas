@@ -158,7 +158,7 @@ func run(ctx context.Context) error {
 	status.markStarted()
 	serveErr := make(chan error, 1)
 	go func() { serveErr <- httpServer.Serve(listener) }()
-	log.Printf("影策 backend listening on %s", addr)
+	log.Printf("ShotFlow backend listening on %s", addr)
 
 	var serveFailure error
 	select {
@@ -188,7 +188,7 @@ func run(ctx context.Context) error {
 	if err := errors.Join(shutdownFailures...); err != nil {
 		return err
 	}
-	log.Printf("影策 backend stopped gracefully")
+	log.Printf("ShotFlow backend stopped gracefully")
 	return nil
 }
 

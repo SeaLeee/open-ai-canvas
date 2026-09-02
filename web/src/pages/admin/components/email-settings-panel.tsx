@@ -394,9 +394,9 @@ export default function EmailSettingsPanel() {
                                                 validator: (_, value: string | undefined) => (!draftEnabled || !value || !/[\r\n]/.test(value) ? Promise.resolve() : Promise.reject(new Error("发件人名称不能包含换行"))),
                                             },
                                         ]}
-                                        extra="留空时服务端使用“影策”。"
+                                        extra="留空时服务端使用“ShotFlow”。"
                                     >
-                                        <Input placeholder="影策" />
+                                        <Input placeholder="ShotFlow" />
                                     </Form.Item>
                                 </div>
                             </div>
@@ -442,7 +442,7 @@ function normalizeEmailFormValues(values: Partial<EmailFormValues>): EmailFormVa
         password: values.password?.trim() || "",
         encryption: values.encryption === "tls" || values.encryption === "none" ? values.encryption : "starttls",
         fromEmail: values.fromEmail?.trim().toLowerCase() || "",
-        fromName: values.fromName?.trim() || "影策",
+        fromName: values.fromName?.trim() || "ShotFlow",
     };
 }
 

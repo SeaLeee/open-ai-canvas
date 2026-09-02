@@ -50,6 +50,46 @@ const kindOptions = [
 
 const categoryOptions = [{ label: "全部分类", value: "all" }, ...ASSET_CATEGORY_OPTIONS];
 
+/** 素材排序模式：default=默认（新添加在前），aesthetic=审美分数优先 */
+type AssetSortMode = "default" | "oldest" | "aesthetic";
+
+const sortOptions = [
+    { label: "默认排序", value: "default" },
+    { label: "审美优先", value: "aesthetic" },
+    { label: "最早添加", value: "oldest" },
+];
+
+const aestheticThresholdOptions = [
+    { label: "全部审美", value: 0 },
+    { label: "≥ 60 分", value: 60 },
+    { label: "≥ 75 分", value: 75 },
+    { label: "≥ 85 分", value: 85 },
+];
+
+/** 读取素材元数据中的审美分数（由审美系统在生图落库时写入，历史素材可能没有） */
+function assetAestheticScore(asset: LibraryAsset): number | null {
+    const score = asset.metadata?.aestheticScore;
+    return typeof score === "number" ? score : null;
+}
+
+function assetAestheticGrade(asset: LibraryAsset): "S" | "A" | "B" | "C" | null {
+    const grade = asset.metadata?.aestheticGrade;
+    return grade === "S" || grade === "A" || grade === "B" || grade === "C" ? grade : null;
+}
+
+function aestheticGradeClassName(grade: "S" | "A" | "B" | "C"): string {
+    switch (grade) {
+        case "S":
+            return "assets-aesthetic-badge is-s";
+        case "A":
+            return "assets-aesthetic-badge is-a";
+        case "B":
+            return "assets-aesthetic-badge is-b";
+        default:
+            return "assets-aesthetic-badge is-c";
+    }
+}
+
 const assetKindIcons: Record<LibraryAsset["kind"], LucideIcon> = {
     text: FileText,
     image: ImageIcon,
@@ -77,6 +117,8 @@ export default function AssetsPage() {
     const [keyword, setKeyword] = useState("");
     const [kindFilter, setKindFilter] = useState<AssetKind | "all">("all");
     const [categoryFilter, setCategoryFilter] = useState<AssetCategory | "all">("all");
+    const [sortBy, setSortBy] = useState<AssetSortMode>("default");
+    const [minAestheticScore, setMinAestheticScore] = useState(0);
     const [page, setPage] = useState(1);
     const [pageSize, setPageSize] = useState(35);
     const [editingAsset, setEditingAsset] = useState<LibraryAsset | null>(null);
@@ -112,17 +154,33 @@ export default function AssetsPage() {
         return validAssets.filter((asset) => {
             if (kindFilter !== "all" && asset.kind !== kindFilter) return false;
             if (categoryFilter !== "all" && (asset.category || "other") !== categoryFilter) return false;
+            if (minAestheticScore > 0 && (assetAestheticScore(asset) ?? -1) < minAestheticScore) return false;
             if (!query) return true;
             return assetSearchText(asset).includes(query);
         });
-    }, [validAssets, keyword, kindFilter, categoryFilter]);
+    }, [validAssets, keyword, kindFilter, categoryFilter, minAestheticScore]);
     const filteredAssetIds = useMemo(() => filteredAssets.map((asset) => asset.id), [filteredAssets]);
     const allFilteredSelected = filteredAssetIds.length > 0 && filteredAssetIds.every((id) => selectedIds.includes(id));
 
     const visibleAssets = useMemo(() => {
+        if (sortBy === "default") {
+            const start = (page - 1) * pageSize;
+            return filteredAssets.slice(start, start + pageSize);
+        }
+        const sorted = [...filteredAssets];
+        if (sortBy === "oldest") {
+            sorted.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+        } else {
+            // 审美优先：有分数的在前，同分按创建时间倒序
+            sorted.sort((a, b) => {
+                const scoreDiff = (assetAestheticScore(b) ?? -1) - (assetAestheticScore(a) ?? -1);
+                if (scoreDiff !== 0) return scoreDiff;
+                return b.createdAt.localeCompare(a.createdAt);
+            });
+        }
         const start = (page - 1) * pageSize;
-        return filteredAssets.slice(start, start + pageSize);
-    }, [filteredAssets, page, pageSize]);
+        return sorted.slice(start, start + pageSize);
+    }, [filteredAssets, page, pageSize, sortBy]);
 
     useEffect(() => {
         const maxPage = Math.max(1, Math.ceil(filteredAssets.length / pageSize));
@@ -454,11 +512,13 @@ export default function AssetsPage() {
                     />
                     <ListToolbar
                         className="library-toolbar"
-                        active={Boolean(keyword || kindFilter !== "all" || categoryFilter !== "all")}
+                        active={Boolean(keyword || kindFilter !== "all" || categoryFilter !== "all" || sortBy !== "default" || minAestheticScore > 0)}
                         onReset={() => {
                             setKeyword("");
                             setKindFilter("all");
                             setCategoryFilter("all");
+                            setSortBy("default");
+                            setMinAestheticScore(0);
                             setPage(1);
                         }}
                     >
@@ -471,6 +531,26 @@ export default function AssetsPage() {
                             onChange={(event) => {
                                 setPage(1);
                                 setKeyword(event.target.value);
+                            }}
+                        />
+                        <Select
+                            size="small"
+                            className="w-28"
+                            value={sortBy}
+                            options={sortOptions}
+                            onChange={(value) => {
+                                setPage(1);
+                                setSortBy(value);
+                            }}
+                        />
+                        <Select
+                            size="small"
+                            className="w-28"
+                            value={minAestheticScore}
+                            options={aestheticThresholdOptions}
+                            onChange={(value) => {
+                                setPage(1);
+                                setMinAestheticScore(value);
                             }}
                         />
                     </ListToolbar>
@@ -916,6 +996,8 @@ function AssetCover({ asset, selected, isTrash = false, onSelect, onOpen, menuIt
     const clock = asset.kind === "video" || asset.kind === "audio" ? formatAssetClock(asset.data.durationMs) : null;
     const showPlay = asset.kind === "video";
     const isLight = asset.kind === "audio" || asset.kind === "text" || asset.kind === "model";
+    const aestheticScore = asset.kind === "image" ? assetAestheticScore(asset) : null;
+    const aestheticGrade = asset.kind === "image" ? assetAestheticGrade(asset) : null;
     return (
         <AssetLibraryCardMedia className={isLight ? "assets-cover is-light" : "assets-cover"}>
             <button type="button" className="assets-cover-link" onClick={onOpen} aria-label={`查看素材：${asset.title}`}>
@@ -952,6 +1034,11 @@ function AssetCover({ asset, selected, isTrash = false, onSelect, onOpen, menuIt
                 {isTrash ? <span className="assets-cover-badge is-category !bg-amber-500/85 !text-white">回收站</span> : <span className="assets-cover-badge is-category">{assetCategoryLabel(asset.category)}</span>}
             </span>
             {clock ? <span className="assets-cover-clock">{clock}</span> : null}
+            {aestheticScore !== null && aestheticGrade ? (
+                <span className={aestheticGradeClassName(aestheticGrade)} title={`审美评分 ${aestheticScore}（等级 ${aestheticGrade}）`}>
+                    {aestheticGrade} · {aestheticScore}
+                </span>
+            ) : null}
             <input type="checkbox" checked={selected} onClick={(event) => event.stopPropagation()} onChange={(event) => onSelect(event.target.checked)} className="assets-select-check" aria-label={`选择 ${asset.title}`} />
             <Dropdown trigger={["click"]} menu={{ items: menuItems }}>
                 <button type="button" className="assets-cover-more" aria-label="更多素材操作" title="更多操作">
@@ -1068,7 +1155,7 @@ function AssetsEmptyState({ onNew, onImport, onGoCanvas }: { onNew: () => void; 
                     </figure>
                 ))}
                 <span className="assets-empty-banner-caption">
-                    <span>影策素材库</span>把每次创作的结果，留档成可复用的资产
+                    <span>ShotFlow素材库</span>把每次创作的结果，留档成可复用的资产
                 </span>
             </div>
             <div className="assets-empty-cards">

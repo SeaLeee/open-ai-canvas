@@ -134,7 +134,7 @@ export function AdminShell() {
                                         <InfinityIcon className="size-4" />
                                     </span>
                                 }
-                                label="影策"
+                                label="ShotFlow"
                                 showLabel={!collapsed}
                                 showVersion={!collapsed}
                                 labelClassName="admin-sidebar-brand-title"

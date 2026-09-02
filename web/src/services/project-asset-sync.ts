@@ -16,6 +16,7 @@ import { saveRemoteUserDataNow } from "@/services/user-data-sync";
 import { getActiveUserScope } from "@/lib/user-scope";
 import { normalizeAssetCategory } from "@/lib/asset-category";
 import { runGenerationConsumer } from "@/services/generation-consumer-lifecycle";
+import { computeImageAestheticScore, toAestheticMetadata } from "@/services/aesthetic-score";
 import { useAssetStore, type AssetCategory, type AssetStatus, type NewAsset } from "@/stores/use-asset-store";
 import type { CanvasNodeData } from "@/types/canvas";
 
@@ -236,6 +237,8 @@ async function generationOutputAsset(input: Parameters<MaterializeGenerationTask
         const image = result.images?.[input.output.outputIndex];
         if (!image) throw new Error("生成任务缺少图片输出");
         const stored = await storedGenerationImage(image, input.effectKey, scope, input.signal);
+        // 审美评分：失败不阻塞素材落库（返回 null 时跳过）
+        const aesthetic = await computeImageAestheticScore(stored.url, input.signal);
         return {
             kind: "image",
             title: "生成图片",
@@ -243,7 +246,7 @@ async function generationOutputAsset(input: Parameters<MaterializeGenerationTask
             tags: ["生成"],
             status: "confirmed",
             source: "生成任务",
-            metadata,
+            metadata: aesthetic ? { ...metadata, ...toAestheticMetadata(aesthetic) } : metadata,
             data: {
                 dataUrl: stored.url,
                 storageKey: stored.storageKey,

@@ -15275,7 +15275,7 @@ html:not(.dark) .creation-home .storyboard-workbench-bar-action:hover { backgrou
     .creation-home .storyboard-workbench-empty-steps span { padding: 5px 10px; }
 }
 
-/* 对话时间线：你 → 影策 AI */
+/* 对话时间线：你 → ShotFlow AI */
 .creation-home .storyboard-workbench-thread {
     display: flex;
     flex-direction: column;
@@ -15360,7 +15360,7 @@ html:not(.dark) .creation-home .storyboard-workbench-bar-action:hover { backgrou
 
 .creation-home .storyboard-workbench-handoff-badge svg { width: 12px; height: 12px; }
 
-/* 影策 AI 头像 */
+/* ShotFlow AI 头像 */
 .creation-home .storyboard-workbench-ai-avatar {
     display: grid;
     width: 30px;
@@ -15436,7 +15436,7 @@ html:not(.dark) .creation-home .storyboard-workbench-bar-action:hover { backgrou
 
 .creation-home .storyboard-workbench-director-note span { flex: 0 0 auto; color: var(--creation-text); font-weight: 600; }
 
-/* 空态影策开场 */
+/* 空态ShotFlow开场 */
 .creation-home .storyboard-workbench-empty-opener {
     display: flex;
     align-items: flex-start;
@@ -15657,7 +15657,7 @@ html:not(.dark) .creation-home .storyboard-workbench-bar-action:hover { backgrou
     .creation-empty-workspace > .creation-empty-suggest { margin-top: 20px; }
 }
 
-/* ===== 素材库 · 重构（影策影视资产） =====
+/* ===== 素材库 · 重构（ShotFlow影视资产） =====
    与画布库共用 studio-band 毛玻璃页头与 frame 外壳；类型化封面、accent 反白筛选、
    批量操作条、banner+欢迎卡空态、资产档案抽屉。全局保持黑白单色。 */
 .assets-library-page .assets-header-meta { gap: 6px; }
@@ -15806,6 +15806,28 @@ html:not(.dark) .creation-home .storyboard-workbench-bar-action:hover { backgrou
     backdrop-filter: blur(6px);
     font-variant-numeric: tabular-nums;
 }
+/* 审美评分徽标（右上角），等级配色 S 金 / A 绿 / B 蓝 / C 灰 */
+.assets-aesthetic-badge {
+    position: absolute;
+    top: 8px;
+    right: 40px;
+    z-index: 2;
+    height: 20px;
+    padding: 0 7px;
+    border-radius: 6px;
+    font-size: var(--fs-micro);
+    font-weight: 620;
+    line-height: 20px;
+    letter-spacing: .02em;
+    backdrop-filter: blur(6px);
+    font-variant-numeric: tabular-nums;
+    color: #fff;
+    border: 1px solid rgba(255, 255, 255, .22);
+}
+.assets-aesthetic-badge.is-s { background: rgba(202, 138, 4, .82); }
+.assets-aesthetic-badge.is-a { background: rgba(22, 128, 61, .8); }
+.assets-aesthetic-badge.is-b { background: rgba(29, 78, 216, .78); }
+.assets-aesthetic-badge.is-c { background: rgba(10, 10, 10, .6); }
 .assets-cover-play { position: absolute; inset: 0; z-index: 1; display: grid; place-items: center; color: #fff; opacity: 0; transition: opacity 180ms ease-out; }
 .assets-cover-play::before { position: absolute; width: 42px; height: 42px; border: 1.5px solid rgba(255, 255, 255, .78); border-radius: var(--r-full); background: rgba(10, 10, 10, .36); content: ""; backdrop-filter: blur(6px); }
 .assets-cover-play svg { position: relative; width: 17px; height: 17px; margin-left: 2px; filter: drop-shadow(0 1px 4px rgba(0, 0, 0, .45)); }
