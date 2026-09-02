@@ -290,6 +290,9 @@ func (s *Service) UploadResource(userID string, header *multipart.FileHeader, ki
 
 	mimeType := strings.TrimSpace(header.Header.Get("Content-Type"))
 	mimeType = detectUploadedMimeType(file, header.Filename, mimeType)
+	if err := validateResourceMimeType(kind, mimeType); err != nil {
+		return nil, err
+	}
 	if existing != nil {
 		return s.retryStoredResource(userID, existing, kind, mimeType, header.Size, file)
 	}
@@ -308,8 +311,44 @@ func (s *Service) UploadResource(userID string, header *multipart.FileHeader, ki
 	return resource, err
 }
 
-func detectUploadedMimeType(file multipart.File, fileName string, declared string) string {
-	declared = strings.TrimSpace(strings.Split(declared, ";")[0])
+// blockedResourceMimeTypes 为任何类型都禁止上传的活动内容类型，
+// 防止借助素材存储投递 HTML/SVG/脚本负载（存储型 XSS / 钓鱼）。
+var blockedResourceMimeTypes = map[string]bool{
+	"text/html":                true,
+	"application/xhtml+xml":    true,
+	"image/svg+xml":           true,
+	"application/xml":         true,
+	"text/xml":                true,
+	"application/javascript":  true,
+	"text/javascript":         true,
+	"application/x-javascript": true,
+}
+
+// validateResourceMimeType 按资源类型校验 MIME 白名单。
+// image/video/audio 必须落在对应前缀内；file 类型放行除活动内容外的其余类型。
+func validateResourceMimeType(kind string, mimeType string) error {
+	mimeType = strings.ToLower(strings.TrimSpace(strings.Split(mimeType, ";")[0]))
+	if blockedResourceMimeTypes[mimeType] {
+		return BadAuthRequest("不支持上传该类型的文件（HTML/SVG/脚本等活动内容被禁止）")
+	}
+	switch normalizeResourceKind(kind, mimeType) {
+	case "image":
+		if mimeType != "application/octet-stream" && !strings.HasPrefix(mimeType, "image/") {
+			return BadAuthRequest("图片素材仅支持 image/* 格式")
+		}
+	case "video":
+		if mimeType != "application/octet-stream" && !strings.HasPrefix(mimeType, "video/") {
+			return BadAuthRequest("视频素材仅支持 video/* 格式")
+		}
+	case "audio":
+		if mimeType != "application/octet-stream" && !strings.HasPrefix(mimeType, "audio/") {
+			return BadAuthRequest("音频素材仅支持 audio/* 格式")
+		}
+	}
+	return nil
+}
+
+func detectUploadedMimeType(file multipart.File, fileName string, declared string) string {	declared = strings.TrimSpace(strings.Split(declared, ";")[0])
 	if declared != "" && declared != "application/octet-stream" {
 		return declared
 	}
@@ -346,6 +385,9 @@ func (s *Service) ImportResourceURL(userID string, rawURL string, kind string, w
 		return nil, err
 	}
 	kind = normalizeResourceKind(kind, payload.mimeType)
+	if err := validateResourceMimeType(kind, payload.mimeType); err != nil {
+		return nil, err
+	}
 	if kind == "image" && (width <= 0 || height <= 0) {
 		if decodedWidth, decodedHeight := imageDimensions(payload.data); decodedWidth > 0 && decodedHeight > 0 {
 			width = decodedWidth

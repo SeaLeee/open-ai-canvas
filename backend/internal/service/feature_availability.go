@@ -43,11 +43,14 @@ type PublicFeatureAvailability struct {
 
 func defaultFeatureAvailability() FeatureAvailability {
 	// 缺少配置代表尚未由运维接管；前台模型需要明确配置后才开放。
+	// Sea 商用模式：仅管理员配置系统渠道（第三方模型 API 由后端统一订阅），
+	// 普通用户不允许自定义渠道、不存储用户自己的 apikey，故默认关闭。
+	// 管理员仍可在后台通过 PATCH /admin/settings/features 重新开启。
 	return FeatureAvailability{
 		ShortDramaEnabled:           true,
 		TaskCenterEnabled:           true,
 		CreditsEnabled:              true,
-		CustomChannelsEnabled:       true,
+		CustomChannelsEnabled:       false,
 		FrontendModelsEnabled:       false,
 		PluginCenterEnabled:         true,
 		SystemPluginsVisibleToUsers: true,

@@ -276,7 +276,8 @@ func RegisterUserDataRoutes(r *gin.RouterGroup, svc *service.Service) {
 		c.Header("ETag", etag)
 		c.Header("Accept-Ranges", "bytes")
 		c.Header("X-Content-Type-Options", "nosniff")
-		if resource.Kind == "file" {
+		// SVG 可携带脚本，直接内联渲染存在 XSS 面，强制附件下载并沙箱化。
+		if resource.Kind == "file" || resource.MimeType == "image/svg+xml" {
 			c.Header("Content-Disposition", "attachment")
 			c.Header("Content-Security-Policy", "sandbox")
 		}
@@ -327,6 +328,11 @@ func RegisterUserDataRoutes(r *gin.RouterGroup, svc *service.Service) {
 		c.Header("Accept-Ranges", "bytes")
 		c.Header("Referrer-Policy", "no-referrer")
 		c.Header("X-Content-Type-Options", "nosniff")
+		// 公开资源同样禁止 SVG 内联渲染（XSS 防护）。
+		if resource.MimeType == "image/svg+xml" {
+			c.Header("Content-Disposition", "attachment")
+			c.Header("Content-Security-Policy", "sandbox")
+		}
 		if stream.ContentRange != "" {
 			c.Header("Content-Range", stream.ContentRange)
 		}
