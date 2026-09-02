@@ -44,7 +44,9 @@ export default defineConfig({
                     if (!id.includes("node_modules")) {
                         return undefined;
                     }
-                    // 重型可视化引擎：仅在画布/3D 路由按需加载，独立分包提升缓存命中率
+                    // 重型可视化/编辑引擎：独立分包提升长缓存，且只在对应懒加载路由使用时才下载。
+                    // 注意：不要加兜底 chunk（如 vendor-misc）——rolldown 会把入口需要的小型共享
+                    // 模块塞进这些大 chunk，导致首屏被迫预加载整个 4.7MB+ 的包。
                     if (id.includes("three") || id.includes("@react-three") || id.includes("fiber")) {
                         return "vendor-three";
                     }
@@ -57,8 +59,7 @@ export default defineConfig({
                     if (id.includes("leafer")) {
                         return "vendor-leafer";
                     }
-                    // 富文本/编辑器
-                    if (id.includes("@tiptap") || id.includes("codemirror") || id.includes("@lezer")) {
+                    if (id.includes("@tiptap") || id.includes("codemirror") || id.includes("@lezer") || id.includes("streamdown")) {
                         return "vendor-editor";
                     }
                     // 媒体处理
@@ -69,18 +70,20 @@ export default defineConfig({
                     if (id.includes("antd") || id.includes("@ant-design") || id.includes("rc-")) {
                         return "vendor-antd";
                     }
-                    // React 核心 + 状态/数据层
+                    // React 核心 + 状态/数据层（首屏必需，独立分包便于长缓存）
                     if (
                         id.includes("react") ||
                         id.includes("scheduler") ||
                         id.includes("@tanstack") ||
                         id.includes("zustand") ||
-                        id.includes("axios")
+                        id.includes("axios") ||
+                        id.includes("nanoid") ||
+                        id.includes("clsx")
                     ) {
                         return "vendor-react";
                     }
-                    // 其余三方依赖统一兜底，避免散落小 chunk
-                    return "vendor-misc";
+                    // 其余依赖交给 rolldown 默认拆分：跟随懒加载路由自然分 chunk
+                    return undefined;
                 },
             },
         },
